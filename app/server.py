@@ -4,7 +4,7 @@ from starlette.staticfiles import StaticFiles
 from starlette.middleware.cors import CORSMiddleware
 import uvicorn, aiohttp, asyncio
 from io import BytesIO
-from fastai2.vision.all import *
+from fastai.vision.all import *
 
 model_file_url = 'https://drive.google.com/uc?export=download&id=1CWS-_2WEL7P5Ijj6d6DyVNMuLAAFE_l-'
 model_file_name = 'export.pkl'
