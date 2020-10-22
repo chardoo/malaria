@@ -6,7 +6,7 @@ import uvicorn, aiohttp, asyncio
 from io import BytesIO
 from fastai2.vision.all import *
 
-model_file_url = 'https://github.com/chardoo/mala-models/blob/main/r18.pkl?raw=True'
+model_file_url = 'https://drive.google.com/uc?export=download&id=1CWS-_2WEL7P5Ijj6d6DyVNMuLAAFE_l-'
 model_file_name = 'export.pkl'
 path = Path(__file__).parent
 
