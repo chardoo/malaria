@@ -14,6 +14,105 @@ app = Starlette()
 app.add_middleware(CORSMiddleware, allow_origins=['*'], allow_headers=['X-Requested-With', 'Content-Type'])
 app.mount('/static', StaticFiles(directory='app/static'))
 
+class RelativeSelfAttention(Module):
+    def __init__(self, d_in, d_out, ks, groups, stride=1):
+        self.n_c, self.ks, self.groups, self.stride = d_out, ks, groups, stride
+        # linear transformation for queries, values and keys
+        self.qx, self.kx, self.vx = [ConvLayer(d_in, d_out, ks=1, norm_type=None,
+                                               act_cls=None) for _ in range(3)]
+        # positional embeddings
+        self.row_embeddings = nn.Parameter(torch.randn(d_out//2, ks))
+        self.col_embeddings = nn.Parameter(torch.randn(d_out//2, ks))
+        
+    def calc_out_shape(self, inp_shape, pad):
+        out_shape = [(sz + 2*pad - self.ks) // self.stride + 1 for sz in inp_shape]
+        return out_shape
+    
+    def forward(self, x):
+        query, keys, values = self.qx(x), self.kx(x), self.vx(x)
+        
+        pad = (self.ks -1) // 2
+        
+        # use unfold to extract the memory blocks and their associated queries
+        query = F.unfold(query, kernel_size=1, stride=self.stride)
+        keys = F.unfold(keys, kernel_size=self.ks, padding=pad, stride=self.stride)
+        values = F.unfold(values, kernel_size=self.ks, padding=pad, stride=self.stride)
+        
+        
+        # reshape and permute the dimensions into the appropriate format for matrix multiplication
+        query = query.view(query.shape[0], self.groups, self.n_c//self.groups, -1, query.shape[-1]) # bs*G*C//G*1*N
+        query = query.permute(0, 4, 1, 2, 3) # bs * N * G * C//G * 1
+        keys = keys.view(keys.shape[0], self.groups, self.n_c//self.groups, -1, keys.shape[-1]) # bs*G*C//G*ks^2*N
+        keys = keys.permute(0, 4, 1, 2, 3) # bs * N * G * C//G * ks^2
+        values = values.view(values.shape[0], self.groups, self.n_c//self.groups, -1, values.shape[-1]) # bs*G*C//G*ks^2*N
+        values = values.permute(0, 4, 1, 2, 3) # bs * N * G * C//G * ks^2
+        
+        # get positional embeddings
+        row_embeddings = self.row_embeddings.unsqueeze(-1).expand(-1, -1, self.ks)
+        col_embeddings = self.col_embeddings.unsqueeze(-2).expand(-1, self.ks, -1)
+        
+        embeddings = torch.cat((row_embeddings, col_embeddings)).view(self.groups,
+                                self.n_c//self.groups, -1) # G * C//G * ks^2
+        # add empty dimensions to match the shape of keys
+        embeddings = embeddings[None, None, -1] # 1 * 1 * G * C//G * ks^2
+        
+        # compute attention map
+        att_map = F.softmax(torch.matmul(query.transpose(-2,-1), keys+embeddings).contiguous(), dim=-1)
+        # compute final output
+        out = torch.matmul(att_map, values.transpose(-2,-1)).contiguous().permute(0, 2, 3, 4, 1)
+        
+        return out.view(out.shape[0], self.n_c, *self.calc_out_shape(x.shape[-2:], pad)).contiguous()
+        
+def resnet_stem(*sizes):
+    return [
+        ConvLayer(sizes[i], sizes[i+1], stride=2 if i==0 else 1)
+         for i in range(len(sizes) - 1)
+    ] + [nn.MaxPool2d(kernel_size=3, stride=2, padding=1)]
+    
+def bottleneck(ni, nf, stride):
+    if stride==1:
+        layers = [ConvLayer(ni, nf//4, ks=1),
+              RelativeSelfAttention(nf//4, nf//4, ks=7, groups=8),
+              ConvLayer(nf//4, nf, ks=1, act_cls=None, norm_type=NormType.BatchZero)]
+    else:
+        layers = [ConvLayer(ni, nf//4, ks=1),
+              RelativeSelfAttention(nf//4, nf//4, ks=7, groups=8),
+              nn.AvgPool2d(2, ceil_mode=True),
+              ConvLayer(nf//4, nf, ks=1, act_cls=None, norm_type=NormType.BatchZero)]
+    
+    return nn.Sequential(*layers)
+    
+class ResNetBlock(Module):
+    def __init__(self, ni, nf, stride, sa, expansion=1):
+        self.botl = bottleneck(ni, nf, stride)
+        self.idconv = noop if ni==nf else ConvLayer(ni, nf, 1, act_cls=None)
+        self.pool = noop if stride==1 else nn.AvgPool2d(2, ceil_mode=True)
+        
+    def forward(self, x):
+        return F.relu(self.botl(x) + self.idconv(self.pool(x)))
+        
+class xResNet(nn.Sequential):
+    def __init__(self, channels, n_out, blocks, sa=True, expansion=1):
+        stem = resnet_stem(channels, 32, 32, 64)
+        self.group_sizes = [64, 64, 128, 256, 512]
+        for i in range(1, len(self.group_sizes)): 
+            self.group_sizes[i] *= expansion
+        groups = [self._make_group(idx, n_blocks, sa=sa if idx==0 else False) 
+                      for idx, n_blocks in enumerate(blocks)]
+        
+        super().__init__(*stem, *groups,
+                         nn.AdaptiveAvgPool2d(1), Flatten(),
+                         nn.Linear(self.group_sizes[-1], n_out))
+        
+    def _make_group(self, idx, n_blocks, sa):
+        stride = 1 if idx==1 else 2
+        ni, nf = self.group_sizes[idx], self.group_sizes[idx+1]
+        return nn.Sequential(*[
+            ResNetBlock(ni if i==0 else nf, nf, stride=stride if i==0 else 1,
+                        sa=sa if i==n_blocks-1 else False)
+             for i in range(n_blocks)
+        ])
+
 async def download_file(url, dest):
     if dest.exists(): return
     async with aiohttp.ClientSession() as session:
