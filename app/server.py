@@ -6,7 +6,7 @@ import uvicorn, aiohttp, asyncio
 from io import BytesIO
 from fastai.vision.all import *
 
-model_file_url = 'https://drive.google.com/uc?export=download&id=1CWS-_2WEL7P5Ijj6d6DyVNMuLAAFE_l-'
+model_file_url = 'https://drive.google.com/uc?export=download&id=19Le7Iw9UEQ6HBONbNol6ZAYYsuHT-_L4'
 model_file_name = 'export.pkl'
 path = Path(__file__).parent
 
