@@ -184,11 +184,7 @@ def predict_from_bytes(img_bytes):
     	prob = round(prob*100, 2)
     	result_html = str(result_html1.open().read() + "Image is <strong>" + clas + "</strong>. Probability <strong>" + str(prob) + "%</strong>" + result_html2.open().read())
     
-    
-    
-    
-    
-    result_html = str(result_html1.open().read() +str(predictions[0:2]) + result_html2.open().read())
+    # result_html = str(result_html1.open().read() +str(predictions[0:2]) + result_html2.open().read())
     return HTMLResponse(result_html)
 
 @app.route("/")
