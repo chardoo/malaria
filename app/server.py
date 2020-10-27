@@ -91,6 +91,21 @@ class ResNetBlock(Module):
     def forward(self, x):
         return F.relu(self.botl(x) + self.idconv(self.pool(x)))
         
+class RandHead(Module):
+    def __init__(self):
+        pass
+        
+    def forward(self, x):
+        rz_shape = torch.randint(210, 224, (1,))
+        pad = (224 - rz_shape).item()
+        h = torch.randint(0, pad+1, (1,))
+        w = torch.randint(0, pad+1, (1,))
+        
+        # step 1 random resize
+        out = F.interpolate(x, [rz_shape]*2)
+        # step 2 pad
+        return F.pad(out, (h, pad-h, w, pad-w))
+        
 class xResNet(nn.Sequential):
     def __init__(self, channels, n_out, blocks, sa=True, expansion=1):
         stem = resnet_stem(channels, 32, 32, 64)
@@ -100,7 +115,7 @@ class xResNet(nn.Sequential):
         groups = [self._make_group(idx, n_blocks, sa=sa if idx==0 else False) 
                       for idx, n_blocks in enumerate(blocks)]
         
-        super().__init__(*stem, *groups,
+        super().__init__(RandHead(), *stem, *groups,
                          nn.AdaptiveAvgPool2d(1), Flatten(),
                          nn.Linear(self.group_sizes[-1], n_out))
         
@@ -112,6 +127,9 @@ class xResNet(nn.Sequential):
                         sa=sa if i==n_blocks-1 else False)
              for i in range(n_blocks)
         ])
+        
+def get_y(o):
+    return [o.parent.name]
 
 async def download_file(url, dest):
     if dest.exists(): return
