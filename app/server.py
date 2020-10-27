@@ -171,6 +171,23 @@ def predict_from_bytes(img_bytes):
     result_html1 = path/'static'/'result1.html'
     result_html2 = path/'static'/'result2.html'
     
+    if predictions[0][1] > predictions[1][1]:
+    	class = "uninfected"
+    	prob = predictions[0][1]
+    else:
+    	class = "parasitized"
+    	prob = predictions[1][1]
+    	
+    if prob < 0.9:
+    	result_html = str(result_html1.open().read() + "Input image is likely out of domain. Please upload a blood smear image" + result_html2.open().read())
+    else:
+    	prob = round(prob*100, 2)
+    	result_html = str(result_html1.open().read() + "Image is <strong>" + class + "</strong>. Probability <strong>" + str(prob) + "%</strong>" + result_html2.open().read())
+    
+    
+    
+    
+    
     result_html = str(result_html1.open().read() +str(predictions[0:2]) + result_html2.open().read())
     return HTMLResponse(result_html)
 
