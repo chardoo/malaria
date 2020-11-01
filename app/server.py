@@ -176,7 +176,7 @@ def predict_from_bytes(img_bytes):
     
 
     if prob < 0.95:
-    	result_html = str(result_html1.open().read() + "Input image is likely out of domain. Please upload a blood smear image" + str(prob) + result_html2.open().read())
+    	result_html = str(result_html1.open().read() + "Input image is likely out of domain. Please upload a blood smear image" + result_html2.open().read())
     else:
     	prob = round(prob.item()*100, 2)
     	result_html = str(result_html1.open().read() + "Image is <strong>" + str(pred[0]) + "</strong>. Probability <strong>" + str(prob) + "%</strong>" + result_html2.open().read())
